@@ -23,7 +23,7 @@ public class InjectionService implements CommandLineRunner {
     private static final Logger logger = LoggerFactory.getLogger(InjectionService.class);
     private final VectorStore vectorStore;
 
-    @Value("classpath:/docs/pdf1.pdf")
+    @Value("classpath:/docs/fictional_rag_test_dossier.pdf")
     private Resource ragOnePdf;
 
     public InjectionService(VectorStore vectorStore) {

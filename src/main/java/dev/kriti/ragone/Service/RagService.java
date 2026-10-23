@@ -1,6 +1,7 @@
 package dev.kriti.ragone.Service;
 
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.client.advisor.StructuredOutputValidationAdvisor;
 import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvisor;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.http.HttpStatus;
@@ -14,6 +15,7 @@ import dev.kriti.ragone.DTO.RagAnswer;
 import dev.kriti.ragone.Response.CommonApiResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import tools.jackson.databind.JsonNode;
 
 @Component
 public class RagService {
@@ -31,7 +33,7 @@ public class RagService {
                 .build();
     }
 
-    public ResponseEntity processQuestionWithContext(String question) {
+    public ResponseEntity<CommonApiResponse> processQuestionWithContext(String question) {
         try {
             String answer = chatClient.prompt()
                     .user(question)
@@ -52,7 +54,7 @@ public class RagService {
         }
     }
 
-    public ResponseEntity processQuestionWithStructuredOutput(String question) {
+    public ResponseEntity<CommonApiResponse> processQuestionWithStructuredOutput(String question) {
         logger.info("Processing question with structured output: {}", question);
         try {
             RagAnswer answer = chatClient.prompt()
@@ -76,7 +78,47 @@ public class RagService {
         }
     }
 
-    public ResponseEntity askGemini(String question) {
+    public ResponseEntity<CommonApiResponse> processQuestionWithCustomStructuredOutput(String question,
+            JsonNode outputSchema) {
+        logger.info("Processing question with custom structured output: {}", question);
+        try {
+            String schemaJson = outputSchema.toString();
+
+            DynamicJsonSchemaConverter converter = new DynamicJsonSchemaConverter(schemaJson);
+
+            // adding validation advisor to ensure the output conforms to the provided
+            // schema
+            var validationAdvisor = StructuredOutputValidationAdvisor.builder()
+                    .outputJsonSchema(schemaJson)
+                    .maxRepeatAttempts(1)
+                    .build();
+
+            JsonNode answer = chatClient.prompt()
+                    .advisors(validationAdvisor)
+                    .system("Answer the question using only the retrieved context.\n" + //
+                            "Do not invent unsupported facts.\n" + //
+                            "Return only the requested JSON structure.")
+                    .user(question)
+                    .call()
+                    .entity(converter, spec -> spec
+                            .useProviderStructuredOutput()
+                            .validateSchema());
+
+            CommonApiResponse response = new CommonApiResponse();
+            logger.info("Answer: {}", answer.toString());
+            response.setResponseMessage(answer);
+            response.setSuccess(true);
+            return new ResponseEntity<CommonApiResponse>(response, HttpStatus.OK);
+        } catch (Exception e) {
+            logger.error("Error processing question: {}", question, e);
+            CommonApiResponse response = new CommonApiResponse();
+            response.setResponseMessage("Error processing question: " + e.getMessage());
+            response.setSuccess(false);
+            return new ResponseEntity<CommonApiResponse>(response, HttpStatus.BAD_REQUEST);
+        }
+    }
+
+    public ResponseEntity<CommonApiResponse> askGemini(String question) {
         try {
             Client client = new Client();
             GenerateContentResponse LLMResponse = client.models.generateContent("gemini-3.1-flash-lite",
